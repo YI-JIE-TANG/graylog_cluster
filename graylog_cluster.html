@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Graylog API Multi-Tool Integration Architecture: Analytics &amp; Automated Reporting</title>
+<style>
+body { font-family: "Segoe UI", "Microsoft JhengHei", sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #333; }
+h1,h2,h3 { color: #1a5276; }
+table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+th, td { border: 1px solid #bbb; padding: 10px 14px; vertical-align: top; }
+th { background: #d6eaf8; }
+tr:nth-child(even) { background: #f5f9fc; }
+code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; }
+pre { background: #f8f8f8; padding: 14px; border-radius: 6px; overflow-x: auto; }
+pre.mermaid { background: white; text-align: center; }
+hr { border: none; border-top: 2px solid #ddd; margin: 30px 0; }
+a { color: #2471a3; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+<h1 id="_1">Graylog API Multi-Tool Integration Architecture: Analytics &amp; Automated Reporting</h1>
+<p>日誌分析與自動化報告系統架構說明書</p>
+<p>本系統採用高可用性（High Availability, HA）與分散式架構，結合 <strong>NGINX</strong>、<strong>Graylog</strong>、<strong>OpenSearch</strong> 及 <strong>MongoDB</strong>，並整合多項工具（Browser / Streamlit App、Python Script、Windows Task Scheduler），提供穩定、高效能且具備自動化分析與報表產出能力的日誌管理平台。</p>
+<hr />
+<h2 id="_2">系統架構圖</h2>
+<h3 id="1-cluster">1. Cluster 架構</h3>
+<pre class="mermaid">graph TD
+    User[Browser / Streamlit App] -->|HTTP/HTTPS| NGINX[NGINX Reverse Proxy]
+
+    NGINX[NGINX Reverse Proxy] -->|Load Balance| Graylog[Graylog Cluster]
+
+    Graylog -->|REST API:9200| OpenSearch[OpenSearch Cluster]
+    Graylog -->|Driver:27017| MongoDB[MongoDB Replica Set]
+
+    subgraph Graylog Cluster
+        G1[Graylog Node 1] --- G2[Graylog Node 2] --- GN[Graylog Node N]
+    end
+
+    subgraph OpenSearch Cluster
+        O1[OpenSearch Node 1] <--> O2[OpenSearch Node 2] <--> O3[OpenSearch Node 3]
+    end
+
+    subgraph MongoDB Replica Set
+        M1[Primary] <--> M2[Secondary 1] <--> M3[Secondary 2]
+    end
+</pre>
+<h3 id="2">2. 排程相關作業</h3>
+<pre class="mermaid">graph TD
+    Scheduler[Windows Task Scheduler] -->|Daily Trigger| Script[Python Script]
+    Script -->|API Request| NGINX[NGINX Reverse Proxy]
+    NGINX -->|REST API| Graylog[Graylog Cluster]
+    Script -->|Auto-Send| Email[Email Recipients]
+</pre>
+<hr />
+<h2 id="_3">目錄</h2>
+<ol>
+<li><a href="#-系統層級與架構解析-system-layers--components">系統層級與架構解析</a></li>
+<li><a href="#-資料流程說明-data-flow--operations">資料流程說明</a></li>
+<li><a href="#graylog-api-multi-tool">Graylog API Multi-Tool Integration Architecture: Analytics &amp; Automated Reporting</a></li>
+<li><a href="#-系統架構達成效益-key-benefits">系統架構達成效益</a></li>
+<li><a href="#_4">總結</a></li>
+</ol>
+<hr />
+<h2 id="system-layers-components">壹、 系統層級與架構解析 (System Layers &amp; Components)</h2>
+<p>本架構由上至下劃分為五大核心層級：</p>
+<h3 id="1-user-interfaces-automation-sources">1. 使用者介面與自動化來源層 (User Interfaces &amp; Automation Sources)</h3>
+<ul>
+<li><strong>Browser (Streamlit App)</strong>：提供前端視覺化操作介面，使用者透過 Web 瀏覽器進行日誌查詢、監控與儀表板互動。</li>
+<li><strong>Python Script (Analysis/Reporting)</strong>：自動化腳本，用於執行高階日誌分析與定期報表繪製。</li>
+<li><strong>Windows Task Scheduler (Daily)</strong>：排程服務，每日定時觸發 Python 腳本執行自動化分析任務。</li>
+<li><strong>Email Report Recipients</strong>：自動化報告接收者，Python 腳本分析完畢後自動將結果發送給指定收件人。</li>
+</ul>
+<h3 id="2-api-load-balancing-api-gateway">2. 負載平衡與 API 網關層 (Load Balancing &amp; API Gateway)</h3>
+<ul>
+<li><strong>NGINX (Reverse Proxy / API Gateway)</strong>：<ul>
+<li><strong>統一入口</strong>：作為外部請求（Web UI/API）與日誌數據傳輸（TCP/UDP）的單一存取點。</li>
+<li><strong>流量分發</strong>：將前端請求以負載平衡（Load Balancing）方式均勻分發至後端的 Graylog 集群，提升系統吞吐量並避免單點故障。</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-api-graylog-api-services-cluster">3. 日誌處理與 API 服務集群層 (Graylog API Services Cluster)</h3>
+<ul>
+<li><strong>Graylog Nodes (Node 1, Node 2 ... Node N)</strong>：<ul>
+<li>負責接收由 NGINX 轉發的日誌數據並進行解析、過濾與正規化處理。</li>
+<li>提供 RESTful API 供前端與腳本呼叫。</li>
+<li>節點間支援 <strong>Inter-node Sync</strong>，確保叢集狀態一致性與高可用性。</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-opensearch-index-cluster">4. 搜尋與索引集群層 (OpenSearch Index Cluster)</h3>
+<ul>
+<li><strong>OpenSearch Nodes (Node 1, Node 2, Node 3)</strong>：<ul>
+<li><strong>核心功能</strong>：負責儲存海量的日誌資料並提供極速全文檢索與索引服務。</li>
+<li><strong>溝通機制</strong>：Graylog 透過 REST API (<code>TCP:9200</code>) 與 OpenSearch 互動；OpenSearch 節點之間透過 <code>Port 9300</code> 進行內部資料同步與集群狀態維持（Data Flow）。</li>
+</ul>
+</li>
+</ul>
+<h3 id="5-mongodb-replica-set">5. 設定與元資料儲存層 (MongoDB Replica Set)</h3>
+<ul>
+<li><strong>MongoDB (Primary / Secondary 1 / Secondary 2)</strong>：<ul>
+<li><strong>核心功能</strong>：儲存 Graylog 的系統設定檔、使用者權限、報表配置與元資料（Metadata），不直接儲存原始大量日誌。</li>
+<li><strong>高可用機制</strong>：採用 <strong>Replica Set</strong>（主從複製與自動選舉）架構，當 Primary 節點異常時，Secondary 節點能透過投票機制自動升格為新的 Primary，確保服務不中斷。Graylog 透過 Driver (<code>TCP:27017</code>) 連接。</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h2 id="data-flow-operations">貳、 資料流程說明 (Data Flow &amp; Operations)</h2>
+<ol>
+<li><strong>日誌收集與存取流程</strong>：<ul>
+<li>使用者或服務透過 HTTPS/JSON 或 TCP/UDP 將流量送至 <strong>NGINX</strong>。</li>
+<li>NGINX 將請求以負載平衡方式分配至 <strong>Graylog Cluster</strong>。</li>
+</ul>
+</li>
+<li><strong>資料儲存與索引流程</strong>：<ul>
+<li><strong>日誌數據</strong>：Graylog 處理後，透過 REST API (<code>TCP:9200</code>) 寫入 <strong>OpenSearch Cluster</strong> 進行索引與儲存。</li>
+<li><strong>系統設定</strong>：Graylog 的配置與元資料透過 Driver (<code>TCP:27017</code>) 寫入並同步於 <strong>MongoDB Replica Set</strong>。</li>
+</ul>
+</li>
+<li><strong>自動化分析與報表產出流程</strong>：<ul>
+<li><strong>Windows Task Scheduler</strong> 每日定時觸發 <strong>Python Script</strong>。</li>
+<li>Python 腳本發送 API 請求給 <strong>NGINX / Graylog</strong> 獲取所需分析數據。</li>
+<li>Python 腳本完成資料分析與圖表繪製後，透過 <strong>Auto-Send</strong> 將分析報告寄送給 <strong>Email Recipients</strong>。</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2 id="graylog-api-multi-tool">參、 Graylog API Multi-Tool Integration Architecture: Analytics &amp; Automated Reporting</h2>
+<p>本章節依據 <strong>Graylog API Multi-Tool Integration Architecture</strong>，針對日誌分析與自動化報告，整合互動式資料分析（Interactive Data Analytics）與 Windows Environment 自動化流程。</p>
+<h3 id="interactive-data-analytics">1. Interactive Data Analytics</h3>
+<p>針對日誌資料分析需求，透過 <strong>Streamlit Analytics Application</strong> 與 <strong>Python Data Processing</strong> 進行互動式資料分析與視覺化：</p>
+<pre class="mermaid">graph LR
+    PD[Python Data Processing] -->|Fetch JSON| SA[Streamlit Analytics Application]
+    SA -->|Process Data and Logs| PD
+    SA -->|Interactive Visualization| V[Interactive Visualization]
+    V -->|Visualization Results| SA
+</pre>
+<h3 id="windows-environment-automation">2. Windows Environment 自動化流程</h3>
+<p>針對自動化分析與報表產出，透過 <strong>Windows Task Scheduler</strong> 與 <strong>Windows Environment</strong> 流程執行：</p>
+<pre class="mermaid">graph TD
+    TS[Windows Task Scheduler] -->|Daily Trigger| Script[Python Script]
+    GL[Graylog Server] -->|Execute Script| Script
+    Script -->|Auto-Send| Email[Email Report Recipients]
+</pre>
+<hr />
+<h2 id="key-benefits">四、 系統架構達成效益 (Key Benefits)</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">效益維度</th>
+<th style="text-align: left;">說明與具體表現</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>高可用性與容錯力<br>(High Availability &amp; Fault Tolerance)</strong></td>
+<td style="text-align: left;">1. <strong>無單點故障</strong>：Graylog、OpenSearch 與 MongoDB 皆採用 Cluster / Replica Set 配置。<br>2. <strong>故障自動轉移</strong>：MongoDB Replica Set 支援自動選舉（Voting &amp; New Primary），確保設定檔服務持續運作。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>高擴充性與效能<br>(Scalability &amp; Performance)</strong></td>
+<td style="text-align: left;">1. <strong>水平擴充</strong>：Graylog 與 OpenSearch 可隨資料量成長隨時新增節點（Node N），無縫提升運算與儲存能力。<br>2. <strong>流量分流</strong>：透過 NGINX 進行 Load Balancing，避免單一 Graylog 節點過載。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>運維自動化與效率<br>(Automation &amp; Operational Efficiency)</strong></td>
+<td style="text-align: left;">1. <strong>自動化報表</strong>：利用 Task Scheduler + Python 腳本，實現每日自動分析與 Email 發送，大幅減少人工整理日誌的時間。<br>2. <strong>靈活的前端展示</strong>：支援 Streamlit 快速構建客製化 Web UI，提升管理人員查詢與決策效率。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>高效搜尋與巨量資料處理<br>(Fast Search &amp; Analytical Capacity)</strong></td>
+<td style="text-align: left;">1. <strong>秒級檢索</strong>：專屬 OpenSearch 分散式集群專門處理日誌索引，能在海量資料中進行精準的全文檢索。<br>2. <strong>職責分離</strong>：日誌內容（OpenSearch）與系統設定（MongoDB）拆分儲存，優化資料庫讀寫效能。</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_4">伍、 總結</h2>
+<p>本架構通過 NGINX 的負載平衡、Graylog 的集群處理、OpenSearch 的高速索引與 MongoDB 的高可用設定，構建了一個兼顧性能、穩定性與自動化運維的日誌管理系統，能有效解決大規模日誌數據的監控與分析需求。</p>
+<script>mermaid.initialize({startOnLoad:true, theme:'default'});</script>
+</body>
+</html>
